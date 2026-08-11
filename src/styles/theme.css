@@ -1,0 +1,136 @@
+:root {
+  --bg: #15141B;
+  --surface: #1E1C26;
+  --surface-raised: #272531;
+  --border: #34313F;
+  --text: #F2EEE8;
+  --text-dim: #8E8A9C;
+  --iris: #8C7CFF;
+  --iris-dim: #4A4166;
+  --coral: #FF6F61;
+
+  --stem-1: #5FB3A3;
+  --stem-2: #D98A6F;
+  --stem-3: #9D8FC9;
+  --stem-4: #D3B354;
+  --stem-5: #6F9BD9;
+  --stem-6: #C9789E;
+
+  --stem-1-dim: #2F584F;
+  --stem-2-dim: #5C3B30;
+  --stem-3-dim: #423C54;
+  --stem-4-dim: #565025;
+  --stem-5-dim: #2C3F58;
+  --stem-6-dim: #543343;
+
+  --font-display: "Space Grotesk", system-ui, sans-serif;
+  --font-body: "Inter", system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", "Cascadia Code", monospace;
+
+  color-scheme: dark;
+}
+
+[data-theme="light"] {
+  --bg: #FAF7F2;
+  --surface: #FFFFFF;
+  --surface-raised: #F1ECE2;
+  --border: #E7E1D6;
+  --text: #201D2B;
+  --text-dim: #736C82;
+  --iris: #6C5CE0;
+  --iris-dim: #DAD4F7;
+  --coral: #E8574A;
+
+  --stem-1: #2F8A78;
+  --stem-2: #B85F3F;
+  --stem-3: #6F5AA8;
+  --stem-4: #96792A;
+  --stem-5: #3D6BAD;
+  --stem-6: #A34C74;
+
+  --stem-1-dim: #C3E5DC;
+  --stem-2-dim: #E8C5B8;
+  --stem-3-dim: #CDC3E4;
+  --stem-4-dim: #DBCFA2;
+  --stem-5-dim: #B9D0EC;
+  --stem-6-dim: #E8C5D5;
+
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --bg: #FAF7F2;
+    --surface: #FFFFFF;
+    --surface-raised: #F1ECE2;
+    --border: #E7E1D6;
+    --text: #201D2B;
+    --text-dim: #736C82;
+    --iris: #6C5CE0;
+    --iris-dim: #DAD4F7;
+    --coral: #E8574A;
+
+    --stem-1: #2F8A78;
+    --stem-2: #B85F3F;
+    --stem-3: #6F5AA8;
+    --stem-4: #96792A;
+    --stem-5: #3D6BAD;
+    --stem-6: #A34C74;
+
+    --stem-1-dim: #C3E5DC;
+    --stem-2-dim: #E8C5B8;
+    --stem-3-dim: #CDC3E4;
+    --stem-4-dim: #DBCFA2;
+    --stem-5-dim: #B9D0EC;
+    --stem-6-dim: #E8C5D5;
+
+    color-scheme: light;
+  }
+}
+
+[data-theme="auto"] {
+  /* Inherit from :root or @media above — no override */
+  background-color: var(--bg);
+  color: var(--text);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  height: 100%;
+}
+
+body {
+  font-family: var(--font-body);
+  background: var(--bg);
+  color: var(--text);
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: background-color 180ms ease, color 180ms ease;
+}
+
+#app {
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body {
+    transition: none;
+  }
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
