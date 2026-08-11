@@ -2,10 +2,16 @@ import { useRef, useState, useCallback, useEffect } from "react";
 import type { Stem } from "../types";
 
 interface AudioChannel {
-  gainNode: GainNode;
+  gainNode: GainNode | null;
   buffer: AudioBuffer | null;
   sourceNode: AudioBufferSourceNode | null;
   sampleRate: number;
+}
+
+interface StoredStem {
+  arrayBuf: ArrayBuffer;
+  sampleRate: number;
+  id: string;
 }
 
 export interface WaveformData {
@@ -34,26 +40,15 @@ interface UseAudioEngineReturn {
 
 const WAVEFORM_RESOLUTION = 200;
 
-function extractWaveform(channels: Map<string, AudioChannel>, duration: number): WaveformData {
-  if (duration <= 0) return { peaks: new Array(WAVEFORM_RESOLUTION).fill(0), duration };
-
+function extractWaveform(entries: { buffer: Float32Array; sampleRate: number }[], duration: number): WaveformData {
+  if (duration <= 0 || entries.length === 0) return { peaks: new Array(WAVEFORM_RESOLUTION).fill(0), duration };
   const peaks: number[] = [];
   const bucketSize = duration / WAVEFORM_RESOLUTION;
-
-  const entries: { buffer: Float32Array; sampleRate: number }[] = [];
-  channels.forEach((ch) => {
-    if (ch.buffer) {
-      entries.push({ buffer: ch.buffer.getChannelData(0), sampleRate: ch.sampleRate });
-    }
-  });
-
-  if (entries.length === 0) return { peaks: new Array(WAVEFORM_RESOLUTION).fill(0), duration };
 
   for (let i = 0; i < WAVEFORM_RESOLUTION; i++) {
     const timeStart = i * bucketSize;
     const timeEnd = (i + 1) * bucketSize;
     let maxPeak = 0;
-
     for (const entry of entries) {
       const s = Math.floor(timeStart * entry.sampleRate);
       const e = Math.floor(timeEnd * entry.sampleRate);
@@ -62,16 +57,16 @@ function extractWaveform(channels: Map<string, AudioChannel>, duration: number):
         if (abs > maxPeak) maxPeak = abs;
       }
     }
-
     peaks.push(Math.min(maxPeak * 1.2, 1));
   }
-
   return { peaks, duration };
 }
 
 export function useAudioEngine(): UseAudioEngineReturn {
   const ctxRef = useRef<AudioContext | null>(null);
   const channelsRef = useRef<Map<string, AudioChannel>>(new Map());
+  const storedStemsRef = useRef<StoredStem[]>([]);
+  const decodedRef = useRef(false);
   const startTimeRef = useRef(0);
   const seekOffsetRef = useRef(0);
   const speedRef = useRef(1);
@@ -101,18 +96,9 @@ export function useAudioEngine(): UseAudioEngineReturn {
     playingRef.current = isPlaying;
   }, [isPlaying]);
 
-  const getCtx = useCallback(() => {
-    if (!ctxRef.current) {
-      ctxRef.current = new AudioContext();
-    }
-    return ctxRef.current;
-  }, []);
-
   const stopAllSources = useCallback(() => {
     channelsRef.current.forEach((ch) => {
-      try {
-        ch.sourceNode?.stop();
-      } catch {}
+      try { ch.sourceNode?.stop(); } catch {}
       ch.sourceNode = null;
     });
   }, []);
@@ -120,11 +106,11 @@ export function useAudioEngine(): UseAudioEngineReturn {
   const dispose = useCallback(() => {
     stopAllSources();
     channelsRef.current.forEach((ch) => {
-      try {
-        ch.gainNode.disconnect();
-      } catch {}
+      try { ch.gainNode?.disconnect(); } catch {}
     });
     channelsRef.current.clear();
+    storedStemsRef.current = [];
+    decodedRef.current = false;
     seekOffsetRef.current = 0;
     startTimeRef.current = 0;
     setIsPlaying(false);
@@ -137,7 +123,6 @@ export function useAudioEngine(): UseAudioEngineReturn {
     const ctx = ctxRef.current;
     if (!ctx) return;
     stopAllSources();
-
     const now = ctx.currentTime;
     startTimeRef.current = now;
     const speedVal = speedRef.current;
@@ -147,7 +132,7 @@ export function useAudioEngine(): UseAudioEngineReturn {
       const src = ctx.createBufferSource();
       src.buffer = ch.buffer;
       src.playbackRate.value = speedVal;
-      src.connect(ch.gainNode);
+      src.connect(ch.gainNode!);
       const offset = seekOffsetRef.current / speedVal;
       if (offset < ch.buffer.duration) {
         src.start(now, offset);
@@ -162,18 +147,19 @@ export function useAudioEngine(): UseAudioEngineReturn {
       setLoadError(null);
       dispose();
 
-      const ctx = getCtx();
-      const newChannels = new Map<string, AudioChannel>();
+      const newStored: StoredStem[] = [];
       let maxDur = 0;
 
       for (const stem of stems) {
         try {
           const arrayBuf = await stem.blob.arrayBuffer();
-          const buffer = await ctx.decodeAudioData(arrayBuf);
-          const gain = ctx.createGain();
-          gain.gain.value = 1;
-          gain.connect(ctx.destination);
-          newChannels.set(stem.id, { gainNode: gain, buffer, sourceNode: null, sampleRate: buffer.sampleRate });
+          const offlineCtx = new OfflineAudioContext(1, 2, 44100);
+          const buffer = await offlineCtx.decodeAudioData(arrayBuf.slice(0));
+          newStored.push({
+            arrayBuf,
+            sampleRate: buffer.sampleRate,
+            id: stem.id,
+          });
           if (buffer.duration > maxDur) maxDur = buffer.duration;
           volRef.current[stem.id] = 1;
           muteRef.current[stem.id] = false;
@@ -182,35 +168,83 @@ export function useAudioEngine(): UseAudioEngineReturn {
         }
       }
 
-      channelsRef.current = newChannels;
+      storedStemsRef.current = newStored;
+      decodedRef.current = false;
       durationRef.current = maxDur;
       setDuration(maxDur);
-      setWaveform(extractWaveform(newChannels, maxDur));
+
+      if (newStored.length > 0) {
+        setWaveform({ peaks: new Array(WAVEFORM_RESOLUTION).fill(0.1), duration: maxDur });
+      }
+
       setIsLoading(false);
     },
-    [getCtx, dispose]
+    [dispose]
   );
 
-  const play = useCallback(async () => {
-    if (channelsRef.current.size === 0) return;
+  const decodeAll = useCallback(async (ctx: AudioContext): Promise<void> => {
+    if (decodedRef.current) return;
+    const stored = storedStemsRef.current;
+    if (stored.length === 0) return;
 
-    const ctx = getCtx();
+    setIsLoading(true);
+    const newChannels = new Map<string, AudioChannel>();
+    let maxDur = 0;
+    const buffersForWaveform: { buffer: Float32Array; sampleRate: number }[] = [];
+
+    for (const s of stored) {
+      try {
+        const buffer = await ctx.decodeAudioData(s.arrayBuf.slice(0));
+        const gain = ctx.createGain();
+        gain.gain.value = muteRef.current[s.id] ? 0 : (volRef.current[s.id] ?? 1);
+        gain.connect(ctx.destination);
+        newChannels.set(s.id, {
+          gainNode: gain,
+          buffer,
+          sourceNode: null,
+          sampleRate: buffer.sampleRate,
+        });
+        buffersForWaveform.push({ buffer: buffer.getChannelData(0), sampleRate: buffer.sampleRate });
+        if (buffer.duration > maxDur) maxDur = buffer.duration;
+      } catch {}
+    }
+
+    channelsRef.current = newChannels;
+    durationRef.current = maxDur;
+    setDuration(maxDur);
+    setWaveform(extractWaveform(buffersForWaveform, maxDur));
+    decodedRef.current = true;
+    setIsLoading(false);
+  }, []);
+
+  const play = useCallback(async () => {
+    const stored = storedStemsRef.current;
+    if (stored.length === 0) return;
+
+    if (!ctxRef.current) {
+      ctxRef.current = new AudioContext();
+    }
+    const ctx = ctxRef.current;
+
     if (ctx.state === "suspended") {
       await ctx.resume();
+    }
+
+    if (!decodedRef.current) {
+      await decodeAll(ctx);
     }
 
     startPlayback();
     setIsPlaying(true);
     playingRef.current = true;
     requestAnimationFrame(tick);
-  }, [getCtx, startPlayback, tick]);
+  }, [decodeAll, startPlayback, tick]);
 
   const pause = useCallback(() => {
     const ctx = ctxRef.current;
     if (!ctx) return;
 
-    seekOffsetRef.current +=
-      (ctx.currentTime - startTimeRef.current) * speedRef.current;
+    seekOffsetRef.current += (ctx.currentTime - startTimeRef.current) * speedRef.current;
     startTimeRef.current = 0;
     stopAllSources();
     setIsPlaying(false);
@@ -227,7 +261,7 @@ export function useAudioEngine(): UseAudioEngineReturn {
     speedRef.current = 1;
     setSpeedState(1);
     channelsRef.current.forEach((ch) => {
-      ch.gainNode.gain.value = 1;
+      if (ch.gainNode) ch.gainNode.gain.value = 1;
     });
     volRef.current = {};
     muteRef.current = {};
@@ -236,7 +270,6 @@ export function useAudioEngine(): UseAudioEngineReturn {
   const seek = useCallback((time: number) => {
     seekOffsetRef.current = Math.max(0, Math.min(time, durationRef.current));
     setCurrentTime(seekOffsetRef.current);
-
     if (playingRef.current) {
       startPlayback();
     }
@@ -245,7 +278,7 @@ export function useAudioEngine(): UseAudioEngineReturn {
   const setVolume = useCallback((stemId: string, volume: number) => {
     volRef.current[stemId] = volume;
     const ch = channelsRef.current.get(stemId);
-    if (ch && !muteRef.current[stemId]) {
+    if (ch?.gainNode && !muteRef.current[stemId]) {
       ch.gainNode.gain.value = volume;
     }
   }, []);
@@ -253,7 +286,7 @@ export function useAudioEngine(): UseAudioEngineReturn {
   const setMute = useCallback((stemId: string, muted: boolean) => {
     muteRef.current[stemId] = muted;
     const ch = channelsRef.current.get(stemId);
-    if (ch) {
+    if (ch?.gainNode) {
       ch.gainNode.gain.value = muted ? 0 : (volRef.current[stemId] ?? 1);
     }
   }, []);
@@ -262,13 +295,9 @@ export function useAudioEngine(): UseAudioEngineReturn {
     const oldSpeed = speedRef.current;
     speedRef.current = s;
     setSpeedState(s);
-
     channelsRef.current.forEach((ch) => {
-      if (ch.sourceNode) {
-        ch.sourceNode.playbackRate.value = s;
-      }
+      if (ch.sourceNode) ch.sourceNode.playbackRate.value = s;
     });
-
     if (playingRef.current && ctxRef.current) {
       const ctx = ctxRef.current;
       const now = ctx.currentTime;
