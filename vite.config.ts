@@ -7,7 +7,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
-      includeAssets: ["favicon.svg"],
+      includeAssets: ["stemdeck-icon.svg"],
       manifest: {
         name: "StemDeck",
         short_name: "StemDeck",
@@ -17,7 +17,7 @@ export default defineConfig({
         display: "standalone",
         icons: [
           {
-            src: "favicon.svg",
+            src: "stemdeck-icon.svg",
             sizes: "any",
             type: "image/svg+xml",
             purpose: "any maskable",

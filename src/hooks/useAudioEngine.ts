@@ -340,7 +340,7 @@ export function useAudioEngine(): UseAudioEngineReturn {
       navigator.mediaSession.metadata = new MediaMetadata({
         title,
         artist: "StemDeck",
-        artwork: [{ src: "/favicon.svg", sizes: "any", type: "image/svg+xml" }],
+        artwork: [{ src: "/stemdeck-icon.svg", sizes: "any", type: "image/svg+xml" }],
       });
       navigator.mediaSession.setActionHandler("play", () => play());
       navigator.mediaSession.setActionHandler("pause", () => pause());
