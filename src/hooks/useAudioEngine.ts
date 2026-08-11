@@ -206,7 +206,9 @@ export function useAudioEngine(): UseAudioEngineReturn {
         });
         buffersForWaveform.push({ buffer: buffer.getChannelData(0), sampleRate: buffer.sampleRate });
         if (buffer.duration > maxDur) maxDur = buffer.duration;
-      } catch {}
+      } catch (err) {
+        setLoadError(`Failed to decode audio track: ${err}`);
+      }
     }
 
     channelsRef.current = newChannels;
@@ -221,17 +223,43 @@ export function useAudioEngine(): UseAudioEngineReturn {
     const stored = storedStemsRef.current;
     if (stored.length === 0) return;
 
-    if (!ctxRef.current) {
-      ctxRef.current = new AudioContext();
+    let ctx = ctxRef.current;
+    if (!ctx) {
+      ctx = new AudioContext();
+      ctxRef.current = ctx;
     }
-    const ctx = ctxRef.current;
 
     if (ctx.state === "suspended") {
       await ctx.resume();
     }
 
+    const silence = ctx.createBuffer(1, 1, ctx.sampleRate);
+    const primeSrc = ctx.createBufferSource();
+    primeSrc.buffer = silence;
+    primeSrc.connect(ctx.destination);
+    primeSrc.start(0);
+
+    if (ctx.state !== "running") {
+      await ctx.resume();
+    }
+
+    if (ctx.state !== "running") {
+      setLoadError("Audio blocked. Turn off silent mode and tap play again.");
+      return;
+    }
+
     if (!decodedRef.current) {
-      await decodeAll(ctx);
+      try {
+        await decodeAll(ctx);
+      } catch (err) {
+        setLoadError(`Failed to decode audio: ${err}`);
+        return;
+      }
+    }
+
+    if (channelsRef.current.size === 0) {
+      setLoadError("No audio stems loaded.");
+      return;
     }
 
     startPlayback();
