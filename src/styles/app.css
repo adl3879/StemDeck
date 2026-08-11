@@ -19,6 +19,7 @@
   display: flex;
   align-items: center;
   padding: 10px 16px;
+  padding-top: calc(10px + env(safe-area-inset-top, 0px));
   gap: 10px;
   border-bottom: 1px solid var(--border);
   background: var(--surface);

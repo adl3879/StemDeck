@@ -36,6 +36,11 @@ export function Mixer() {
   }, [song]);
 
   useEffect(() => {
+    if (!song) return;
+    engine.setMediaMetadata(song.name);
+  }, [song, engine]);
+
+  useEffect(() => {
     return () => disposeRef.current();
   }, []);
 

@@ -35,6 +35,7 @@ interface UseAudioEngineReturn {
   setVolume: (stemId: string, volume: number) => void;
   setMute: (stemId: string, muted: boolean) => void;
   setSpeed: (speed: number) => void;
+  setMediaMetadata: (title: string) => void;
   dispose: () => void;
 }
 
@@ -334,6 +335,53 @@ export function useAudioEngine(): UseAudioEngineReturn {
     }
   }, []);
 
+  const setMediaMetadata = useCallback((title: string) => {
+    if ("mediaSession" in navigator) {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title,
+        artist: "StemDeck",
+        artwork: [{ src: "/favicon.svg", sizes: "any", type: "image/svg+xml" }],
+      });
+      navigator.mediaSession.setActionHandler("play", () => play());
+      navigator.mediaSession.setActionHandler("pause", () => pause());
+      navigator.mediaSession.setActionHandler("seekto", (details) => {
+        if (details.seekTime != null) seek(details.seekTime);
+      });
+    }
+  }, [play, pause, seek]);
+
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.hidden) return;
+      const ctx = ctxRef.current;
+      if (ctx && ctx.state === "suspended" && playingRef.current) {
+        ctx.resume().then(() => {
+          if (ctx.state === "running" && playingRef.current) {
+            startPlayback();
+          }
+        });
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, [startPlayback]);
+
+  useEffect(() => {
+    const ctx = ctxRef.current;
+    if (!ctx) return;
+    const handleStateChange = () => {
+      if (ctx.state === "suspended" && playingRef.current) {
+        ctx.resume().then(() => {
+          if (ctx.state === "running" && playingRef.current) {
+            startPlayback();
+          }
+        });
+      }
+    };
+    ctx.addEventListener("statechange", handleStateChange);
+    return () => ctx.removeEventListener("statechange", handleStateChange);
+  });
+
   return {
     isLoading,
     isPlaying,
@@ -350,6 +398,7 @@ export function useAudioEngine(): UseAudioEngineReturn {
     setVolume,
     setMute,
     setSpeed,
+    setMediaMetadata,
     dispose,
   };
 }
