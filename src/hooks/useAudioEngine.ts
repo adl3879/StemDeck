@@ -71,6 +71,7 @@ export function useAudioEngine(): UseAudioEngineReturn {
   const startTimeRef = useRef(0);
   const seekOffsetRef = useRef(0);
   const speedRef = useRef(1);
+  const loadTokenRef = useRef(0);
   const volRef = useRef<Record<string, number>>({});
   const muteRef = useRef<Record<string, boolean>>({});
   const durationRef = useRef(0);
@@ -144,6 +145,7 @@ export function useAudioEngine(): UseAudioEngineReturn {
 
   const loadStems = useCallback(
     async (stems: Stem[]): Promise<void> => {
+      const token = ++loadTokenRef.current;
       setIsLoading(true);
       setLoadError(null);
       dispose();
@@ -168,6 +170,8 @@ export function useAudioEngine(): UseAudioEngineReturn {
           setLoadError(`Failed to decode "${stem.name}": ${err}`);
         }
       }
+
+      if (token !== loadTokenRef.current) return; // superseded by a newer load
 
       storedStemsRef.current = newStored;
       decodedRef.current = false;

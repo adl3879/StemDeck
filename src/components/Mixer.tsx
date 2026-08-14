@@ -1,8 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import type { Song } from "../types";
 import { getSong, saveSong, createStem } from "../store/db";
-import { useAudioEngine } from "../hooks/useAudioEngine";
+import { usePlayer } from "../store/player";
 import { ChannelStrip } from "./ChannelStrip";
 import { WaveformScrubber } from "./WaveformScrubber";
 import { IconPlay, IconPause, IconChevron, IconPlus } from "./icons/Icons";
@@ -10,17 +10,28 @@ import { IconPlay, IconPause, IconChevron, IconPlus } from "./icons/Icons";
 export function Mixer() {
   const { songId } = useParams<{ songId: string }>();
   const navigate = useNavigate();
-  const engine = useAudioEngine();
+  const {
+    volumes,
+    mutes,
+    isPlaying,
+    loadError,
+    currentTime,
+    duration,
+    speed,
+    waveform,
+    openSong,
+    reloadStems,
+    play,
+    pause,
+    seek,
+    setSpeed,
+    setVolume,
+    setMute,
+  } = usePlayer();
   const [song, setSong] = useState<Song | null>(null);
-  const [volumes, setVolumes] = useState<Record<string, number>>({});
-  const [mutes, setMutes] = useState<Record<string, boolean>>({});
   const [speedExpanded, setSpeedExpanded] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const loadedRef = useRef(false);
-  const loadStemsRef = useRef(engine.loadStems);
-  const disposeRef = useRef(engine.dispose);
-  loadStemsRef.current = engine.loadStems;
-  disposeRef.current = engine.dispose;
 
   useEffect(() => {
     if (!songId) return;
@@ -32,40 +43,15 @@ export function Mixer() {
   useEffect(() => {
     if (!song || loadedRef.current) return;
     loadedRef.current = true;
-    loadStemsRef.current(song.stems);
-  }, [song]);
-
-  useEffect(() => {
-    if (!song) return;
-    engine.setMediaMetadata(song.name);
-  }, [song, engine]);
-
-  useEffect(() => {
-    return () => disposeRef.current();
-  }, []);
-
-  const handleVolume = useCallback(
-    (stemId: string, vol: number) => {
-      setVolumes((v) => ({ ...v, [stemId]: vol }));
-      engine.setVolume(stemId, vol);
-    },
-    [engine]
-  );
-
-  const handleMute = useCallback(
-    (stemId: string, muted: boolean) => {
-      setMutes((m) => ({ ...m, [stemId]: muted }));
-      engine.setMute(stemId, muted);
-    },
-    [engine]
-  );
+    openSong(song);
+  }, [song, openSong]);
 
   const addStems = async (files: FileList) => {
     if (!song) return;
     const audioFiles = Array.from(files).filter(
       (f) =>
         f.type.startsWith("audio/") ||
-        /\.(mp3|wav|ogg|flac|m4a|aac|aiff|wma)$/i.test(f.name)
+        /\\.(mp3|wav|ogg|flac|m4a|aac|aiff|wma)$/i.test(f.name)
     );
     if (audioFiles.length === 0) return;
 
@@ -74,7 +60,7 @@ export function Mixer() {
     const updatedSong: Song = { ...song, stems: [...song.stems, ...newStems] };
     await saveSong(updatedSong);
     setSong(updatedSong);
-    loadStemsRef.current(updatedSong.stems);
+    reloadStems(updatedSong);
   };
 
   if (!song) {
@@ -108,7 +94,7 @@ export function Mixer() {
 
       <div className="mixer">
         <div className="mixer-channels">
-          {engine.loadError && (
+          {loadError && (
             <div
               style={{
                 padding: 16,
@@ -117,7 +103,7 @@ export function Mixer() {
                 fontSize: 13,
               }}
             >
-              {engine.loadError}
+              {loadError}
             </div>
           )}
           {song.stems.map((stem) => (
@@ -126,28 +112,28 @@ export function Mixer() {
               stem={stem}
               volume={volumes[stem.id] ?? 1}
               muted={mutes[stem.id] ?? false}
-              isPlaying={engine.isPlaying}
-              onVolumeChange={(v) => handleVolume(stem.id, v)}
-              onMuteToggle={() => handleMute(stem.id, !mutes[stem.id])}
+              isPlaying={isPlaying}
+              onVolumeChange={(v) => setVolume(stem.id, v)}
+              onMuteToggle={() => setMute(stem.id, !mutes[stem.id])}
             />
           ))}
         </div>
 
         <div className="transport">
           <WaveformScrubber
-            waveform={engine.waveform}
-            currentTime={engine.currentTime}
-            duration={engine.duration}
-            onSeek={engine.seek}
+            waveform={waveform}
+            currentTime={currentTime}
+            duration={duration}
+            onSeek={seek}
           />
           <div className="transport-row">
             <div className="transport-speed">
               <button
                 className="transport-speed-readout"
                 onClick={() => setSpeedExpanded((v) => !v)}
-                aria-label={`Speed ${engine.speed}x. Tap to adjust.`}
+                aria-label={`Speed ${speed}x. Tap to adjust.`}
               >
-                {engine.speed.toFixed(2)}x
+                {speed.toFixed(2)}x
               </button>
               {speedExpanded && (
                 <>
@@ -157,12 +143,12 @@ export function Mixer() {
                     min="0.5"
                     max="1.5"
                     step="0.05"
-                    value={engine.speed}
-                    onChange={(e) => engine.setSpeed(Number(e.target.value))}
+                    value={speed}
+                    onChange={(e) => setSpeed(Number(e.target.value))}
                     aria-label="Playback speed"
                   />
                   <span className="transport-speed-label">
-                    {engine.speed.toFixed(2)}x
+                    {speed.toFixed(2)}x
                   </span>
                 </>
               )}
@@ -173,15 +159,15 @@ export function Mixer() {
         <button
           className="transport-play-float"
           onClick={() => {
-            if (engine.isPlaying) {
-              engine.pause();
+            if (isPlaying) {
+              pause();
             } else {
-              engine.play();
+              play();
             }
           }}
-          aria-label={engine.isPlaying ? "Pause" : "Play"}
+          aria-label={isPlaying ? "Pause" : "Play"}
         >
-          {engine.isPlaying ? <IconPause /> : <IconPlay />}
+          {isPlaying ? <IconPause /> : <IconPlay />}
         </button>
         </div>
 

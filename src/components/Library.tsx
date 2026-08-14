@@ -2,8 +2,10 @@ import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import type { Song, StemType } from "../types";
 import { getAllSongs, saveSong, deleteSong, generateId, createStem } from "../store/db";
+import { usePlayer } from "../store/player";
 import { ThemeToggle } from "./ThemeToggle";
 import { useTheme } from "../hooks/useTheme";
+import { NowPlaying } from "./NowPlaying";
 import { IconPlus, IconDelete } from "./icons/Icons";
 
 const STEM_ICON_SRC: Record<StemType, string> = {
@@ -22,6 +24,7 @@ export function Library() {
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { theme, setTheme } = useTheme();
+  const { currentSong, closeSong } = usePlayer();
 
   useEffect(() => {
     getAllSongs().then(setSongs);
@@ -74,6 +77,7 @@ export function Library() {
   const confirmDelete = async () => {
     if (!deleteTarget) return;
     await deleteSong(deleteTarget.id);
+    if (currentSong?.id === deleteTarget.id) closeSong();
     const updated = await getAllSongs();
     setSongs(updated);
     setDeleteTarget(null);
@@ -155,6 +159,8 @@ export function Library() {
           <span className="hint">Select a folder of stems</span>
         </div>
       </div>
+
+      <NowPlaying />
 
       {showNamePrompt && (
         <div className="dialog-overlay" onClick={() => setShowNamePrompt(false)}>
