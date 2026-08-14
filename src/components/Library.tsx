@@ -6,7 +6,8 @@ import { usePlayer } from "../store/player";
 import { ThemeToggle } from "./ThemeToggle";
 import { useTheme } from "../hooks/useTheme";
 import { NowPlaying } from "./NowPlaying";
-import { IconPlus, IconDelete } from "./icons/Icons";
+import { SongCard } from "./SongCard";
+import { IconPlus } from "./icons/Icons";
 
 const STEM_ICON_SRC: Record<StemType, string> = {
   drums: "/drum.svg",
@@ -24,7 +25,10 @@ export function Library() {
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const { theme, setTheme } = useTheme();
-  const { currentSong, closeSong } = usePlayer();
+  const { currentSong, isPlaying, playSong, play, pause, closeSong } =
+    usePlayer();
+  const [loadingSongId, setLoadingSongId] = useState<string | null>(null);
+  const [openCardId, setOpenCardId] = useState<string | null>(null);
 
   useEffect(() => {
     getAllSongs().then(setSongs);
@@ -74,6 +78,21 @@ export function Library() {
     setPendingFiles([]);
   };
 
+  const handleQuickPlay = (song: Song) => {
+    if (currentSong?.id === song.id) {
+      if (isPlaying) {
+        pause();
+      } else {
+        void play();
+      }
+      return;
+    }
+    setLoadingSongId(song.id);
+    void playSong(song).then(() =>
+      setLoadingSongId((id) => (id === song.id ? null : id))
+    );
+  };
+
   const confirmDelete = async () => {
     if (!deleteTarget) return;
     await deleteSong(deleteTarget.id);
@@ -86,7 +105,14 @@ export function Library() {
   const getStemIconSet = (song: Song) => {
     const types = new Set(song.stems.map((s) => s.type));
     return Array.from(types).map((t) => (
-      <img key={t} src={STEM_ICON_SRC[t]} alt={t} width="20" height="20" />
+      <img
+        key={t}
+        src={STEM_ICON_SRC[t]}
+        alt={t}
+        width="20"
+        height="20"
+        draggable={false}
+      />
     ));
   };
 
@@ -97,7 +123,7 @@ export function Library() {
         <ThemeToggle theme={theme} onChange={setTheme} />
       </div>
 
-      <div className="content">
+      <div className={`content${currentSong ? " content-with-player" : ""}`}>
         {songs.length === 0 ? (
           <div className="empty-state">
             <img src="/others.svg" alt="" width="32" height="32" style={{ opacity: 0.4 }} />
@@ -107,32 +133,26 @@ export function Library() {
         ) : (
           <div className="song-list">
             {songs.map((song) => (
-              <div
+              <SongCard
                 key={song.id}
-                className="song-card"
-                onClick={() => navigate(`/song/${song.id}`)}
+                song={song}
+                isOpen={openCardId === song.id}
+                isCurrent={currentSong?.id === song.id}
+                isPlaying={isPlaying}
+                isLoading={loadingSongId === song.id}
+                onOpenRequest={() => setOpenCardId(song.id)}
+                onCloseRequest={() =>
+                  setOpenCardId((id) => (id === song.id ? null : id))
+                }
+                onCardClick={() => navigate(`/song/${song.id}`)}
+                onPlayClick={() => handleQuickPlay(song)}
+                onDeleteClick={() => {
+                  setOpenCardId(null);
+                  setDeleteTarget(song);
+                }}
               >
-                <div className="song-card-stem-icons">
-                  {getStemIconSet(song)}
-                </div>
-                <div className="song-card-info">
-                  <div className="song-card-name">{song.name}</div>
-                  <div className="song-card-meta">
-                    {song.stems.length} stem{song.stems.length !== 1 ? "s" : ""}{" "}
-                    · {new Date(song.dateAdded).toLocaleDateString()}
-                  </div>
-                </div>
-                <button
-                  className="song-card-delete btn-icon"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setDeleteTarget(song);
-                  }}
-                  aria-label={`Delete ${song.name}`}
-                >
-                  <IconDelete />
-                </button>
-              </div>
+                {getStemIconSet(song)}
+              </SongCard>
             ))}
           </div>
         )}

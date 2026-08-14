@@ -14,6 +14,7 @@ export function Mixer() {
     volumes,
     mutes,
     isPlaying,
+    isLoading,
     loadError,
     currentTime,
     duration,
@@ -165,9 +166,16 @@ export function Mixer() {
               play();
             }
           }}
-          aria-label={isPlaying ? "Pause" : "Play"}
+          disabled={isLoading}
+          aria-label={isLoading ? "Loading" : isPlaying ? "Pause" : "Play"}
         >
-          {isPlaying ? <IconPause /> : <IconPlay />}
+          {isLoading ? (
+            <span className="spinner spinner-on-iris spinner-lg" aria-hidden="true" />
+          ) : isPlaying ? (
+            <IconPause />
+          ) : (
+            <IconPlay />
+          )}
         </button>
         </div>
 

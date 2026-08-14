@@ -28,6 +28,7 @@ interface UseAudioEngineReturn {
   duration: number;
   waveform: WaveformData | null;
   loadStems: (stems: Stem[]) => Promise<void>;
+  primeContext: () => Promise<boolean>;
   play: () => Promise<void>;
   pause: () => void;
   stop: () => void;
@@ -40,6 +41,46 @@ interface UseAudioEngineReturn {
 }
 
 const WAVEFORM_RESOLUTION = 200;
+
+// A tiny silent WAV used by the background-audio keep-alive <audio> element.
+// iOS Safari only keeps Web Audio playing in the background when the page also
+// holds an active media session; a looping silent audio element makes the
+// browser treat the tab as a media player and keeps the audio session alive.
+let silentAudioUrl: string | null = null;
+function getSilentAudioUrl(): string {
+  if (silentAudioUrl) return silentAudioUrl;
+  const sampleRate = 8000;
+  const numSamples = sampleRate; // 1 second of silence, 8-bit mono PCM
+  const buffer = new ArrayBuffer(44 + numSamples);
+  const view = new DataView(buffer);
+  const writeStr = (offset: number, s: string) => {
+    for (let i = 0; i < s.length; i++) view.setUint8(offset + i, s.charCodeAt(i));
+  };
+  writeStr(0, "RIFF");
+  view.setUint32(4, 36 + numSamples, true);
+  writeStr(8, "WAVE");
+  writeStr(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate, true);
+  view.setUint16(32, 1, true);
+  view.setUint16(34, 8, true);
+  writeStr(36, "data");
+  view.setUint32(40, numSamples, true);
+  for (let i = 0; i < numSamples; i++) view.setUint8(44 + i, 128);
+  silentAudioUrl = URL.createObjectURL(new Blob([buffer], { type: "audio/wav" }));
+  return silentAudioUrl;
+}
+
+function setMediaPlaybackState(state: "playing" | "paused") {
+  if ("mediaSession" in navigator) {
+    try {
+      navigator.mediaSession.playbackState = state;
+    } catch {}
+  }
+}
 
 function extractWaveform(entries: { buffer: Float32Array; sampleRate: number }[], duration: number): WaveformData {
   if (duration <= 0 || entries.length === 0) return { peaks: new Array(WAVEFORM_RESOLUTION).fill(0), duration };
@@ -75,6 +116,7 @@ export function useAudioEngine(): UseAudioEngineReturn {
   const volRef = useRef<Record<string, number>>({});
   const muteRef = useRef<Record<string, boolean>>({});
   const durationRef = useRef(0);
+  const keepAliveRef = useRef<HTMLAudioElement | null>(null);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const playingRef = useRef(false);
@@ -105,6 +147,33 @@ export function useAudioEngine(): UseAudioEngineReturn {
     });
   }, []);
 
+  // The keep-alive element must start playing inside the user gesture, so it is
+  // primed synchronously from primeContext (which play/playSong call on tap).
+  const primeKeepAlive = useCallback(() => {
+    try {
+      let audio = keepAliveRef.current;
+      if (!audio) {
+        audio = new Audio();
+        audio.src = getSilentAudioUrl();
+        audio.loop = true;
+        audio.volume = 0.0001;
+        audio.preload = "auto";
+        // Detached audio elements don't play on iOS Safari — it must be in the DOM.
+        if (document.body) document.body.appendChild(audio);
+        keepAliveRef.current = audio;
+      }
+      if (audio.paused) {
+        void audio.play().catch(() => {});
+      }
+    } catch {}
+  }, []);
+
+  const pauseKeepAlive = useCallback(() => {
+    try {
+      keepAliveRef.current?.pause();
+    } catch {}
+  }, []);
+
   const dispose = useCallback(() => {
     stopAllSources();
     channelsRef.current.forEach((ch) => {
@@ -119,7 +188,9 @@ export function useAudioEngine(): UseAudioEngineReturn {
     playingRef.current = false;
     setCurrentTime(0);
     setWaveform(null);
-  }, [stopAllSources]);
+    pauseKeepAlive();
+    setMediaPlaybackState("paused");
+  }, [stopAllSources, pauseKeepAlive]);
 
   const startPlayback = useCallback(() => {
     const ctx = ctxRef.current;
@@ -224,10 +295,9 @@ export function useAudioEngine(): UseAudioEngineReturn {
     setIsLoading(false);
   }, []);
 
-  const play = useCallback(async () => {
-    const stored = storedStemsRef.current;
-    if (stored.length === 0) return;
-
+  const primeContext = useCallback(async (): Promise<boolean> => {
+    // Start the keep-alive before any await so it runs inside the gesture.
+    primeKeepAlive();
     let ctx = ctxRef.current;
     if (!ctx) {
       ctx = new AudioContext();
@@ -235,7 +305,9 @@ export function useAudioEngine(): UseAudioEngineReturn {
     }
 
     if (ctx.state === "suspended") {
-      await ctx.resume();
+      try {
+        await ctx.resume();
+      } catch {}
     }
 
     const silence = ctx.createBuffer(1, 1, ctx.sampleRate);
@@ -245,13 +317,25 @@ export function useAudioEngine(): UseAudioEngineReturn {
     primeSrc.start(0);
 
     if (ctx.state !== "running") {
-      await ctx.resume();
+      try {
+        await ctx.resume();
+      } catch {}
     }
 
-    if (ctx.state !== "running") {
+    return ctx.state === "running";
+  }, []);
+
+  const play = useCallback(async () => {
+    const stored = storedStemsRef.current;
+    if (stored.length === 0) return;
+
+    const running = await primeContext();
+    if (!running) {
       setLoadError("Audio blocked. Turn off silent mode and tap play again.");
       return;
     }
+
+    const ctx = ctxRef.current!;
 
     if (!decodedRef.current) {
       try {
@@ -270,8 +354,9 @@ export function useAudioEngine(): UseAudioEngineReturn {
     startPlayback();
     setIsPlaying(true);
     playingRef.current = true;
+    setMediaPlaybackState("playing");
     requestAnimationFrame(tick);
-  }, [decodeAll, startPlayback, tick]);
+  }, [primeContext, decodeAll, startPlayback, tick]);
 
   const pause = useCallback(() => {
     const ctx = ctxRef.current;
@@ -282,7 +367,9 @@ export function useAudioEngine(): UseAudioEngineReturn {
     stopAllSources();
     setIsPlaying(false);
     playingRef.current = false;
-  }, [stopAllSources]);
+    pauseKeepAlive();
+    setMediaPlaybackState("paused");
+  }, [stopAllSources, pauseKeepAlive]);
 
   const stop = useCallback(() => {
     stopAllSources();
@@ -298,7 +385,9 @@ export function useAudioEngine(): UseAudioEngineReturn {
     });
     volRef.current = {};
     muteRef.current = {};
-  }, [stopAllSources]);
+    pauseKeepAlive();
+    setMediaPlaybackState("paused");
+  }, [stopAllSources, pauseKeepAlive]);
 
   const seek = useCallback((time: number) => {
     seekOffsetRef.current = Math.max(0, Math.min(time, durationRef.current));
@@ -344,7 +433,11 @@ export function useAudioEngine(): UseAudioEngineReturn {
       navigator.mediaSession.metadata = new MediaMetadata({
         title,
         artist: "StemDeck",
-        artwork: [{ src: "/stemdeck-icon.svg", sizes: "any", type: "image/svg+xml" }],
+        // iOS ignores SVG artwork; PNGs (small first) show reliably on the lock screen.
+        artwork: [
+          { src: "/icon-96.png", sizes: "96x96", type: "image/png" },
+          { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
+        ],
       });
       navigator.mediaSession.setActionHandler("play", () => play());
       navigator.mediaSession.setActionHandler("pause", () => pause());
@@ -395,6 +488,7 @@ export function useAudioEngine(): UseAudioEngineReturn {
     duration,
     waveform,
     loadStems,
+    primeContext,
     play,
     pause,
     stop,

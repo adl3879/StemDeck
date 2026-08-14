@@ -49,7 +49,6 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
   transition: color 150ms ease, background 150ms ease;
   flex-shrink: 0;
 }
@@ -97,6 +96,11 @@
   flex-direction: column;
 }
 
+/* Clearance so the floating player never covers list content */
+.content-with-player {
+  padding-bottom: 112px;
+}
+
 /* Empty state */
 .empty-state {
   flex: 1;
@@ -136,9 +140,14 @@
 }
 
 /* Song card */
+.song-card-wrap {
+  position: relative;
+  overflow: hidden;
+}
+
 .song-card {
+  position: relative;
   background: var(--surface);
-  border-radius: 12px;
   padding: 14px;
   display: flex;
   align-items: center;
@@ -146,6 +155,12 @@
   cursor: pointer;
   border: 1px solid var(--border);
   transition: border-color 150ms ease, background 150ms ease;
+  touch-action: pan-y;
+  will-change: transform;
+}
+
+.song-card.is-animating {
+  transition: transform 200ms ease, border-color 150ms ease, background 150ms ease;
 }
 
 .song-card:active {
@@ -183,20 +198,83 @@
   margin-top: 2px;
 }
 
-.song-card-delete {
+.song-card-play {
   flex-shrink: 0;
-  opacity: 0;
-  transition: opacity 150ms ease;
+  color: var(--text-dim);
+  transition: color 150ms ease, opacity 150ms ease;
 }
 
-.song-card:hover .song-card-delete,
-.song-card:active .song-card-delete {
-  opacity: 1;
+.song-card-play:hover {
+  color: var(--iris);
 }
 
-@media (hover: none) {
-  .song-card-delete {
-    opacity: 1;
+.song-card-play.is-current {
+  color: var(--iris);
+}
+
+.song-card-play:disabled {
+  opacity: 0.85;
+  cursor: default;
+}
+
+/* Loading spinner */
+.spinner {
+  display: block;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--iris-dim);
+  border-top-color: var(--iris);
+  border-radius: 50%;
+  animation: spin 700ms linear infinite;
+}
+
+.spinner-lg {
+  width: 26px;
+  height: 26px;
+  border-width: 3px;
+}
+
+.spinner-on-iris {
+  border-color: rgba(255, 255, 255, 0.35);
+  border-top-color: #fff;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation-duration: 1.6s;
+  }
+}
+
+/* Swipe-to-delete reveal */
+.song-card-delete-reveal {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 88px;
+  background: var(--coral);
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: opacity 100ms ease;
+}
+
+.song-card-delete-reveal:active {
+  opacity: 0.85;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .song-card.is-animating {
+    transition: none;
   }
 }
 
@@ -204,7 +282,6 @@
 .add-song-zone {
   margin: 12px 16px;
   border: 2px dashed var(--border);
-  border-radius: 12px;
   padding: 24px 16px;
   display: flex;
   flex-direction: column;
@@ -237,22 +314,29 @@
   color: var(--text-dim);
 }
 
-/* Now playing (homepage mini player) */
+/* Now playing (homepage mini player) — floating card over the list */
 .now-playing {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  width: calc(100% - 32px);
+  max-width: 448px;
+  z-index: 50;
   display: flex;
   align-items: center;
   gap: 12px;
-  background: var(--surface);
-  border-top: 1px solid var(--border);
-  padding: 10px 16px;
-  padding-bottom: calc(10px + env(safe-area-inset-bottom, 0px));
+  background: var(--surface-raised);
+  border: 1px solid var(--border);
+  padding: 10px 12px;
+  box-shadow: var(--shadow);
   cursor: pointer;
-  flex-shrink: 0;
-  transition: background 150ms ease;
+  transition: background 150ms ease, transform 100ms ease;
 }
 
 .now-playing:active {
-  background: var(--surface-raised);
+  background: var(--surface);
+  transform: translateX(-50%) scale(0.99);
 }
 
 .now-playing-play {
@@ -302,7 +386,6 @@
 
 .now-playing-progress {
   height: 3px;
-  border-radius: 2px;
   background: var(--border);
   overflow: hidden;
   margin-top: 2px;
@@ -310,12 +393,22 @@
 
 .now-playing-progress-fill {
   height: 100%;
-  border-radius: 2px;
   background: var(--iris);
   transition: width 120ms linear;
 }
 
+.now-playing-error {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--coral);
+  line-height: 1.4;
+  margin-top: 4px;
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .now-playing {
+    transition: none;
+  }
   .now-playing-play {
     transition: none;
   }
@@ -348,7 +441,6 @@
   border: 1px solid var(--border);
   border-left-width: 3px;
   border-left-style: solid;
-  border-radius: 0 10px 10px 0;
   padding: 12px 10px 10px 10px;
   display: flex;
   align-items: stretch;
@@ -433,7 +525,6 @@
 
 .volume-step {
   height: 10px;
-  border-radius: 3px;
   background: var(--border);
   cursor: pointer;
   transition: background 150ms ease;
@@ -556,7 +647,6 @@
   -webkit-tap-highlight-color: transparent;
   touch-action: none;
   background: var(--bg);
-  border-radius: 8px;
 }
 
 .waveform-placeholder {
@@ -612,7 +702,6 @@
   color: var(--text-dim);
   cursor: pointer;
   padding: 6px 10px;
-  border-radius: 6px;
   background: var(--surface-raised);
   border: 1px solid var(--border);
   min-width: 52px;
@@ -629,7 +718,6 @@
   -webkit-appearance: none;
   appearance: none;
   height: 4px;
-  border-radius: 2px;
   background: var(--border);
   outline: none;
 }
@@ -665,7 +753,6 @@
 
 .level-meter-bar {
   width: 3px;
-  border-radius: 1px;
   background: var(--border);
   transition: height 80ms ease, background 150ms ease;
 }
@@ -690,7 +777,6 @@
 .dialog {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 14px;
   padding: 24px;
   max-width: 340px;
   width: 100%;
@@ -721,7 +807,6 @@
 .dialog-input {
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 8px;
   color: var(--text);
   padding: 10px 12px;
   font-size: 14px;
@@ -749,7 +834,6 @@
   min-width: 44px;
   min-height: 44px;
   padding: 0 16px;
-  border-radius: 8px;
   display: inline-flex;
   align-items: center;
   justify-content: center;

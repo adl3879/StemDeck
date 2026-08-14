@@ -11,8 +11,15 @@ function formatTime(seconds: number): string {
 
 export function NowPlaying() {
   const navigate = useNavigate();
-  const { currentSong, isPlaying, currentTime, duration, play, pause } =
-    usePlayer();
+  const {
+    currentSong,
+    isPlaying,
+    currentTime,
+    duration,
+    loadError,
+    play,
+    pause,
+  } = usePlayer();
 
   if (!currentSong) return null;
 
@@ -48,6 +55,7 @@ export function NowPlaying() {
             style={{ width: `${progress * 100}%` }}
           />
         </div>
+        {loadError && <div className="now-playing-error">{loadError}</div>}
       </div>
     </div>
   );

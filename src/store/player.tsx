@@ -20,7 +20,8 @@ interface PlayerContextValue {
   waveform: WaveformData | null;
   volumes: Volumes;
   mutes: Mutes;
-  openSong: (song: Song) => void;
+  openSong: (song: Song) => Promise<void>;
+  playSong: (song: Song) => Promise<void>;
   reloadStems: (song: Song) => void;
   closeSong: () => void;
   play: () => Promise<void>;
@@ -37,6 +38,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const engine = useAudioEngine();
   const {
     loadStems,
+    primeContext,
     setMediaMetadata,
     stop,
     dispose,
@@ -62,20 +64,44 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
   const [mutes, setMutes] = useState<Mutes>({});
 
   const openSong = useCallback(
-    (song: Song) => {
-      if (currentSongRef.current?.id === song.id) return;
+    (song: Song): Promise<void> => {
+      // Publish now-playing info early; iOS needs an active media session set up
+      // around the user gesture for background audio to keep playing.
+      setMediaMetadata(song.name);
+      if (currentSongRef.current?.id === song.id) return Promise.resolve();
       const token = ++loadTokenRef.current;
-      void loadStems(song.stems).then(() => {
+      return loadStems(song.stems).then(() => {
         if (token !== loadTokenRef.current) return;
         const info = { id: song.id, name: song.name };
         currentSongRef.current = info;
         setCurrentSong(info);
         setVolumes({});
         setMutes({});
-        setMediaMetadata(song.name);
       });
     },
     [loadStems, setMediaMetadata]
+  );
+
+  const playSong = useCallback(
+    (song: Song): Promise<void> => {
+      // Set up the media session and create/resume the AudioContext synchronously
+      // within the user gesture so iOS keeps audio alive in the background while
+      // stems are still being decoded asynchronously.
+      setMediaMetadata(song.name);
+      void primeContext();
+      if (currentSongRef.current?.id === song.id) return play();
+      const token = ++loadTokenRef.current;
+      return loadStems(song.stems).then(() => {
+        if (token !== loadTokenRef.current) return;
+        const info = { id: song.id, name: song.name };
+        currentSongRef.current = info;
+        setCurrentSong(info);
+        setVolumes({});
+        setMutes({});
+        return play();
+      });
+    },
+    [loadStems, setMediaMetadata, play, primeContext]
   );
 
   const reloadStems = useCallback(
@@ -131,6 +157,7 @@ export function PlayerProvider({ children }: { children: ReactNode }) {
     volumes,
     mutes,
     openSong,
+    playSong,
     reloadStems,
     closeSong,
     play,

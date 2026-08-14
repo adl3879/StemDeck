@@ -8,6 +8,7 @@
   --iris: #8C7CFF;
   --iris-dim: #4A4166;
   --coral: #FF6F61;
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
 
   --stem-1: #5FB3A3;
   --stem-2: #D98A6F;
@@ -40,6 +41,7 @@
   --iris: #6C5CE0;
   --iris-dim: #DAD4F7;
   --coral: #E8574A;
+  --shadow: 0 8px 24px rgba(31, 29, 43, 0.18);
 
   --stem-1: #2F8A78;
   --stem-2: #B85F3F;
@@ -69,6 +71,7 @@
     --iris: #6C5CE0;
     --iris-dim: #DAD4F7;
     --coral: #E8574A;
+    --shadow: 0 8px 24px rgba(31, 29, 43, 0.18);
 
     --stem-1: #2F8A78;
     --stem-2: #B85F3F;
